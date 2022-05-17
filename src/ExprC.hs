@@ -1,12 +1,12 @@
 module ExprC where
 
-import Data.List (intercalate)
-
 data ExprC
   = IdC
   | ComposeC ExprC ExprC
-  | ProductC [ExprC]
-  | PrjC Int
+  | TermC
+  | PairC ExprC ExprC
+  | FstC
+  | SndC
   | AbsC ExprC
   | AppC
   | IntC Int
@@ -20,12 +20,17 @@ showC expr =
     IdC -> "id"
     ComposeC f g ->
       showC g <> " > " <> showC f
-    ProductC ps ->
+    TermC -> "term"
+    PairC a b ->
       "pair("
-        <> intercalate ", " (showC <$> ps)
+        <> showC a
+        <> ", "
+        <> showC b
         <> ")"
-    PrjC i ->
-      "prj[" <> show i <> "]"
+    FstC ->
+      "fst"
+    SndC ->
+      "snd"
     AbsC body ->
       "abs(" <> showC body <> ")"
     AppC -> "app"
@@ -41,18 +46,17 @@ optimise expr =
         (IdC, g') -> g'
         (f', IdC) -> f'
         (f', g') -> ComposeC f' g'
-    ProductC fs ->
-      let fs' = optimise <$> fs
-          prjs = PrjC <$> reverse [0 .. length fs - 1]
-       in if fs' == prjs
-            then IdC
-            else case fs' of
-              ComposeC g x : fs''
-                | all (\f'' -> case f'' of ComposeC _ x' -> x == x'; _ -> False) fs' ->
-                    optimise $ ComposeC (ProductC $ g : fmap (\(ComposeC g' _) -> g') fs'') x
-              _ -> ProductC fs'
+    PairC a b ->
+      case (optimise a, optimise b) of
+        (FstC, SndC) -> IdC
+        (ComposeC a' x, ComposeC b' x')
+          | x == x' ->
+              optimise $ ComposeC (PairC a' b') x
+        (a', b') -> PairC a' b'
     AbsC body -> AbsC $ optimise body
-    PrjC {} -> expr
+    TermC -> expr
+    FstC -> expr
+    SndC -> expr
     IntC {} -> expr
     IdC -> expr
     AppC -> expr

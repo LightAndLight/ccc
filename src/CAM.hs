@@ -5,7 +5,7 @@ module CAM where
 
 import Control.Category ((>>>))
 import ExprC (ExprC (..))
-import Prelude hiding (abs, product)
+import Prelude hiding (abs, fst, snd)
 
 uncons :: [a] -> Maybe (a, [a])
 uncons [] = Nothing
@@ -18,28 +18,23 @@ unsnoc (x : xs) = (\(xs', y) -> (x : xs', y)) <$> unsnoc xs
 
 data Value
   = VLam Value ExprC
-  | VProduct [Value]
+  | VPair Value Value
+  | VUnit
   | VInt Int
   deriving (Eq, Show)
 
-(!) :: Value -> Int -> Value
-(!) (VProduct ps) 0 = last ps
-(!) v 0 = v
-(!) (VProduct ps) n = VProduct (init ps) ! (n - 1)
-
 snocV :: Value -> Value -> Value
-snocV (VProduct ps) v = VProduct $ ps <> [v]
-snocV v1 v2 = VProduct [v1, v2]
+snocV a b = VPair a b
 
 unsnocV :: Value -> Maybe (Value, Value)
-unsnocV (VProduct ps) =
-  (\(ps', v) -> (VProduct ps', v)) <$> unsnoc ps
+unsnocV (VPair a b) = Just (a, b)
+unsnocV VUnit = Nothing
 
 data CAM = CAM {stack :: [Value], register :: Value}
   deriving (Eq, Show)
 
 empty :: CAM
-empty = CAM [] (VProduct [])
+empty = CAM [] VUnit
 
 mapRegister :: (Value -> Value) -> CAM -> CAM
 mapRegister f (CAM stk reg) = CAM stk (f reg)
@@ -55,33 +50,28 @@ pop (CAM (v : stk) reg) =
   CAM stk (snocV v reg)
 
 dup :: CAM -> CAM
-dup = mapRegister (\reg -> VProduct [reg, reg])
+dup = mapRegister (\reg -> snocV reg reg)
 
 swap :: CAM -> CAM
 swap (CAM (v : stk) reg) = CAM (reg : stk) v
 
 clear :: CAM -> CAM
-clear = mapRegister (const $ VProduct [])
-
-prj :: Int -> CAM -> CAM
-prj ix = mapRegister (\reg -> reg ! ix)
+clear = mapRegister (const VUnit)
 
 int :: Int -> CAM -> CAM
 int i = mapRegister (const $ VInt i)
 
 add :: CAM -> CAM
-add = mapRegister (\(VProduct [VInt x, VInt y]) -> VInt $ x + y)
+add = mapRegister (\(VPair (VInt x) (VInt y)) -> VInt $ x + y)
 
 mul :: CAM -> CAM
-mul = mapRegister (\(VProduct [VInt x, VInt y]) -> VInt $ x * y)
+mul = mapRegister (\(VPair (VInt x) (VInt y)) -> VInt $ x * y)
 
 abs :: ExprC -> CAM -> CAM
 abs body = mapRegister (\reg -> VLam reg body)
 
-product :: [CAM -> CAM] -> CAM -> CAM
-product [] = clear
-product [p] = p
-product (p : ps) =
+pair :: (CAM -> CAM) -> (CAM -> CAM) -> CAM -> CAM
+pair a b =
   -- register: X
   dup
     -- stack: s
@@ -89,20 +79,26 @@ product (p : ps) =
     >>> push
     -- stack: s, X
     -- register: X
-    >>> p
+    >>> a
     -- stack: s, X
     -- register: A
     >>> swap
     -- stack: s, A
     -- register: X
-    >>> product ps
+    >>> b
     -- stack: s, A
-    -- register: B * C * ... * Z
+    -- register: B
     >>> pop
+
+fst :: CAM -> CAM
+fst = mapRegister (\(VPair a _) -> a)
+
+snd :: CAM -> CAM
+snd = mapRegister (\(VPair _ b) -> b)
 
 app :: CAM -> CAM
 app state =
-  let VProduct [VLam env body, x] = register state
+  let VPair (VLam env body) x = register state
    in run body (state {register = snocV env x})
 
 run :: ExprC -> CAM -> CAM
@@ -111,10 +107,14 @@ run expr =
     IdC -> id
     ComposeC f g ->
       run f . run g
-    ProductC ps ->
-      product (run <$> ps)
-    PrjC ix ->
-      prj ix
+    TermC ->
+      clear
+    PairC a b ->
+      pair (run a) (run b)
+    FstC ->
+      fst
+    SndC ->
+      snd
     AbsC body ->
       abs body
     AppC ->

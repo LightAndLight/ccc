@@ -3,9 +3,9 @@
 -- This is the "bytecode" for the "categorical virtual machine".
 module CAM.Inst where
 
-import CAM (unsnoc)
+import Debug.Trace (traceShow)
 import ExprC (ExprC (..))
-import Prelude hiding (abs, product)
+import Prelude hiding (abs, fst, snd)
 
 data Inst
   = PUSH
@@ -13,7 +13,8 @@ data Inst
   | DUP
   | SWAP
   | CLEAR
-  | PRJ Int
+  | FST
+  | SND
   | ABS [Inst]
   | APP
   | INT Int
@@ -21,14 +22,12 @@ data Inst
   | MUL
   deriving (Eq, Show)
 
-product :: [ExprC] -> [Inst]
-product [] = [CLEAR]
-product [p] = compile p
-product (p : ps) =
+pair :: ExprC -> ExprC -> [Inst]
+pair a b =
   [DUP, PUSH]
-    <> compile p
+    <> compile a
     <> [SWAP]
-    <> product ps
+    <> compile b
     <> [POP]
 
 compile :: ExprC -> [Inst]
@@ -37,10 +36,14 @@ compile expr =
     IdC -> []
     ComposeC f g ->
       compile g <> compile f
-    ProductC ps ->
-      product ps
-    PrjC ix ->
-      [PRJ ix]
+    TermC ->
+      [CLEAR]
+    PairC a b ->
+      pair a b
+    FstC ->
+      [FST]
+    SndC ->
+      [SND]
     AbsC body ->
       [ABS $ compile body]
     AppC ->
@@ -54,25 +57,17 @@ compile expr =
 
 data Value
   = VLam Value [Inst]
-  | VPair Value [Value]
+  | VPair Value Value
   | VUnit
   | VInt Int
   deriving (Eq, Show)
 
-(!) :: Value -> Int -> Value
-(!) (VPair v1 vs) 0 = last $ v1 : vs
-(!) v 0 = v
-(!) (VPair v1 vs) n = VPair v1 (init vs) ! (n - 1)
-
 snocV :: Value -> Value -> Value
-snocV (VPair v1 vs) v2 = VPair v1 (vs <> [v2])
-snocV v1 v2 = VPair v1 [v2]
+snocV a b = VPair a b
 
 unsnocV :: Value -> Maybe (Value, Value)
-unsnocV (VPair v1 vs) =
-  case unsnoc vs of
-    Nothing -> Just (VUnit, v1)
-    Just (vs', x) -> Just (VPair v1 vs', x)
+unsnocV (VPair a b) = Just (a, b)
+unsnocV VUnit = Nothing
 
 data CAM = CAM {stack :: [Value], register :: Value}
   deriving (Eq, Show)
@@ -102,24 +97,27 @@ swap (CAM (v : stk) reg) = CAM (reg : stk) v
 clear :: CAM -> CAM
 clear = mapRegister (const VUnit)
 
-prj :: Int -> CAM -> CAM
-prj ix = mapRegister (\reg -> reg ! ix)
+fst :: CAM -> CAM
+fst = mapRegister (\(VPair a _) -> a)
+
+snd :: CAM -> CAM
+snd = mapRegister (\(VPair _ b) -> b)
 
 int :: Int -> CAM -> CAM
 int i = mapRegister (const $ VInt i)
 
 add :: CAM -> CAM
-add = mapRegister (\(VPair (VInt x) [VInt y]) -> VInt $ x + y)
+add = mapRegister (\(VPair (VInt x) (VInt y)) -> VInt $ x + y)
 
 mul :: CAM -> CAM
-mul = mapRegister (\(VPair (VInt x) [VInt y]) -> VInt $ x * y)
+mul = mapRegister (\(VPair (VInt x) (VInt y)) -> VInt $ x * y)
 
 abs :: [Inst] -> CAM -> CAM
 abs body = mapRegister (\reg -> VLam reg body)
 
 app :: CAM -> CAM
 app state =
-  let VPair (VLam env body) [x] = register state
+  let VPair (VLam env body) x = register state
    in runInsts body (state {register = snocV env x})
 
 runInst :: Inst -> CAM -> CAM
@@ -130,7 +128,8 @@ runInst inst =
     DUP -> dup
     SWAP -> swap
     CLEAR -> clear
-    PRJ ix -> prj ix
+    FST -> fst
+    SND -> snd
     ABS body -> abs body
     APP -> app
     INT i -> int i
@@ -139,4 +138,4 @@ runInst inst =
 
 runInsts :: [Inst] -> CAM -> CAM
 runInsts [] = id
-runInsts (inst : insts) = runInsts insts . runInst inst
+runInsts (inst : insts) = runInsts insts . runInst inst . (\env -> traceShow (inst, env) env)
