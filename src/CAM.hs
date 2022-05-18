@@ -7,28 +7,12 @@ import Control.Category ((>>>))
 import ExprC (ExprC (..))
 import Prelude hiding (abs, fst, snd)
 
-uncons :: [a] -> Maybe (a, [a])
-uncons [] = Nothing
-uncons (x : xs) = Just (x, xs)
-
-unsnoc :: [a] -> Maybe ([a], a)
-unsnoc [] = Nothing
-unsnoc [x] = Just ([], x)
-unsnoc (x : xs) = (\(xs', y) -> (x : xs', y)) <$> unsnoc xs
-
 data Value
   = VLam Value ExprC
   | VPair Value Value
   | VUnit
   | VInt Int
   deriving (Eq, Show)
-
-snocV :: Value -> Value -> Value
-snocV a b = VPair a b
-
-unsnocV :: Value -> Maybe (Value, Value)
-unsnocV (VPair a b) = Just (a, b)
-unsnocV VUnit = Nothing
 
 data CAM = CAM {stack :: [Value], register :: Value}
   deriving (Eq, Show)
@@ -40,17 +24,15 @@ mapRegister :: (Value -> Value) -> CAM -> CAM
 mapRegister f (CAM stk reg) = CAM stk (f reg)
 
 push :: CAM -> CAM
-push (CAM stk reg) =
-  case unsnocV reg of
-    Just (v, reg') -> CAM (v : stk) reg'
-    Nothing -> undefined
+push (CAM stk (VPair v reg)) =
+  CAM (v : stk) reg
 
 pop :: CAM -> CAM
 pop (CAM (v : stk) reg) =
-  CAM stk (snocV v reg)
+  CAM stk (VPair v reg)
 
 dup :: CAM -> CAM
-dup = mapRegister (\reg -> snocV reg reg)
+dup = mapRegister (\reg -> VPair reg reg)
 
 swap :: CAM -> CAM
 swap (CAM (v : stk) reg) = CAM (reg : stk) v
@@ -99,7 +81,7 @@ snd = mapRegister (\(VPair _ b) -> b)
 app :: CAM -> CAM
 app state =
   let VPair (VLam env body) x = register state
-   in run body (state {register = snocV env x})
+   in run body (state {register = VPair env x})
 
 run :: ExprC -> CAM -> CAM
 run expr =

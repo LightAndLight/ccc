@@ -62,13 +62,6 @@ data Value
   | VInt Int
   deriving (Eq, Show)
 
-snocV :: Value -> Value -> Value
-snocV a b = VPair a b
-
-unsnocV :: Value -> Maybe (Value, Value)
-unsnocV (VPair a b) = Just (a, b)
-unsnocV VUnit = Nothing
-
 data CAM = CAM {stack :: [Value], register :: Value}
   deriving (Eq, Show)
 
@@ -79,17 +72,15 @@ mapRegister :: (Value -> Value) -> CAM -> CAM
 mapRegister f (CAM stk reg) = CAM stk (f reg)
 
 push :: CAM -> CAM
-push (CAM stk reg) =
-  case unsnocV reg of
-    Just (v, reg') -> CAM (v : stk) reg'
-    Nothing -> undefined
+push (CAM stk (VPair v reg)) =
+  CAM (v : stk) reg
 
 pop :: CAM -> CAM
 pop (CAM (v : stk) reg) =
-  CAM stk (snocV v reg)
+  CAM stk (VPair v reg)
 
 dup :: CAM -> CAM
-dup = mapRegister (\reg -> snocV reg reg)
+dup = mapRegister (\reg -> VPair reg reg)
 
 swap :: CAM -> CAM
 swap (CAM (v : stk) reg) = CAM (reg : stk) v
@@ -118,7 +109,7 @@ abs body = mapRegister (\reg -> VLam reg body)
 app :: CAM -> CAM
 app state =
   let VPair (VLam env body) x = register state
-   in runInsts body (state {register = snocV env x})
+   in runInsts body (state {register = VPair env x})
 
 runInst :: Inst -> CAM -> CAM
 runInst inst =
