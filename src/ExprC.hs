@@ -45,6 +45,19 @@ optimise expr =
       case (optimise f, optimise g) of
         (IdC, g') -> g'
         (f', IdC) -> f'
+        -- beta reduction
+        (AppC, PairC (AbsC body) g') -> optimise $ ComposeC body (PairC IdC g')
+        (ComposeC x AppC, PairC (AbsC body) g') -> optimise $ ComposeC x (ComposeC body (PairC IdC g'))
+        (AppC, ComposeC (PairC (AbsC body) g') x) -> optimise $ ComposeC (ComposeC body (PairC IdC g')) x
+        -- product fst beta
+        (FstC, PairC a _) -> a
+        (ComposeC g' FstC, PairC a _) -> optimise $ ComposeC g' a
+        (FstC, ComposeC (PairC a _) f') -> optimise $ ComposeC a f'
+        -- product snd beta
+        (SndC, PairC _ b) -> b
+        (ComposeC g' SndC, PairC _ b) -> optimise $ ComposeC g' b
+        (SndC, ComposeC (PairC _ b) f') -> optimise $ ComposeC b f'
+        -- no more optimisations
         (f', g') -> ComposeC f' g'
     PairC a b ->
       case (optimise a, optimise b) of
