@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedLists #-}
 
 module Linear where
@@ -5,6 +6,8 @@ module Linear where
 import Control.Applicative ((<|>))
 import Data.List (findIndex)
 import Data.Semigroup (Semigroup (sconcat))
+import Debug.Trace (traceShow)
+import GHC.Stack (HasCallStack)
 
 data Expr
   = Var String
@@ -99,13 +102,20 @@ data RearrangeError
   deriving (Show)
 
 data Path = Here | L Path | R Path
+  deriving (Show)
+
+(|>) :: Path -> Path -> Path
+(|>) Here a = a
+(|>) (L path) a = L (path |> a)
+(|>) (R path) a = R (path |> a)
 
 data Ctx = I | N String | Ctx :*: Ctx
+  deriving (Eq, Show)
 
-swapC :: Path -> Path -> Ctx -> (ExprC, Ctx)
+swapC :: HasCallStack => Path -> Path -> Ctx -> (ExprC, Ctx)
 swapC Here Here ctx = (IdC, ctx)
-swapC Here _ _ = error "here"
-swapC _ Here _ = error "here"
+swapC Here r _ = error $ "swapC: Here, " <> show r
+swapC l Here _ = error $ "swapC: " <> show l <> ", Here"
 swapC (L path) (L path') ctx =
   let l :*: r = ctx
       (swapping, l') = swapC path path' l
@@ -148,55 +158,43 @@ getPath name (l :*: r) =
   (L <$> getPath name l) <|> (R <$> getPath name r)
 
 rearrangeC :: Ctx -> Ctx -> Either RearrangeError ExprC
-rearrangeC a b = go a (Here, b)
+rearrangeC a b = snd <$> go a (Here, b)
   where
+    go :: HasCallStack => Ctx -> (Path, Ctx) -> Either RearrangeError (Ctx, ExprC)
     go I (path, I) =
-      pure IdC
+      pure (I, IdC)
     go (N l) (path, I) =
       Left $ UnusedVariable l
     go (l :*: r) (path, I) = do
-      l' <- go l (path, I)
-      r' <- go r (path, I)
-      pure $ ComposeC ForgetlC (ParC l' r')
+      (lctx, l') <- go l (path, I)
+      (rctx, r') <- go r (path, I)
+      pure (lctx :*: rctx, ComposeC ForgetlC (ParC l' r'))
     go from (toPath, N n) =
       case getPath n from of
         Nothing -> Left $ NotInScope n
         Just fromPath ->
-          let (swapping, from') = swapC fromPath toPath from
-           in pure swapping
-    go from (path, l :*: r) = _
-
-{-
-
-rearrangeC _ I I = Right IdC
-rearrangeC _ (N l) I = Left $ UnusedVariable l
-rearrangeC path items (N l) =
-  case findPath l items of
-    Nothing -> Left $ NotInScope l
-    Just ix ->
-      let (swapping, l' : items') = swapC 0 ix items
-       in if ix /= 0 && l /= l'
-            then error $ "ix : " <> show ix <> ", items: " <> show items
-            else
-              ComposeC
-                <$> (ParC <$> pure IdC <*> rearrangeC items' rs)
-                <*> pure swapping
--}
+          let !_ = traceShow (fromPath, toPath) ()
+              (swapping, from') = swapC fromPath toPath from
+           in pure (from', swapping)
+    go from (path, l :*: r) = do
+      (from', l') <- go from (path |> L Here, l)
+      (from'', r') <- go from' (path |> R Here, r)
+      pure (from'', ComposeC r' l')
 
 fromExpr :: Expr -> ExprC
-fromExpr = go []
+fromExpr = go I
   where
     contextOf :: Expr -> Ctx
     contextOf expr =
       case expr of
-        Var name -> [name]
-        Lam _ body -> let ctx = init $ contextOf body in ctx
-        App f x -> contextOf f <> contextOf x
-        Pair a b -> contextOf a <> contextOf b
+        Var name -> N name
+        Lam _ body -> let ctx :*: N _ = contextOf body in ctx
+        App f x -> contextOf f :*: contextOf x
+        Pair a b -> contextOf a :*: contextOf b
         LetPair _ _ value body ->
           let ctx1 = contextOf value
-              ctx2 = init $ init $ contextOf body
-           in ctx1 <> ctx2
+              (ctx2 :*: N _) :*: N _ = contextOf body
+           in ctx1 :*: ctx2
         With a b ->
           let actx = contextOf a
               bctx = contextOf b
@@ -206,11 +204,11 @@ fromExpr = go []
         Snd a ->
           contextOf a
         Int _ ->
-          []
+          I
         Add a b ->
-          contextOf a <> contextOf b
+          contextOf a :*: contextOf b
         Mul a b ->
-          contextOf a <> contextOf b
+          contextOf a :*: contextOf b
 
     splitC ::
       Ctx ->
@@ -221,18 +219,20 @@ fromExpr = go []
     splitC ctx l r =
       let lctx = contextOf l
           rctx = contextOf r
-       in case rearrangeC ctx (lctx <> rctx) of
+          !_ = traceShow ("splitC", ctx, l, r) ()
+       in case rearrangeC ctx (lctx :*: rctx) of
             Right ctx' -> (lctx, rctx, ctx')
             Left err -> error $ show err
 
     go ctx expr =
       case expr of
         Var name ->
-          case rearrangeC ctx [name] of
-            Right rearrange -> rearrange
-            Left err -> error $ show err
+          let !_ = traceShow ("var", ctx, name) ()
+           in case rearrangeC ctx (N name) of
+                Right rearrange -> rearrange
+                Left err -> error $ show err
         Lam name body ->
-          AbsC (go (ctx <> [name]) body)
+          AbsC (go (ctx :*: N name) body)
         App f x ->
           let (ctx1, ctx2, split) = splitC ctx f x
            in ComposeC AppC $ ComposeC (ParC (go ctx1 f) (go ctx2 x)) split
@@ -248,7 +248,7 @@ fromExpr = go []
         Snd a ->
           ComposeC SndC (go ctx a)
         Int i ->
-          let [] = ctx in IntC i
+          let I = ctx in IntC i
         Add a b ->
           let (ctx1, ctx2, split) = splitC ctx a b
            in ComposeC AddC $ ComposeC (ParC (go ctx1 a) (go ctx2 b)) split
@@ -266,6 +266,7 @@ optimise expr =
         -- left association
         (f', ComposeC g' h') -> optimise $ ComposeC (ComposeC f' g') h'
         -- no more optimisations
+        (SwapC, SwapC) -> IdC
         (f', g') -> ComposeC f' g'
     ParC a b ->
       case (optimise a, optimise b) of
