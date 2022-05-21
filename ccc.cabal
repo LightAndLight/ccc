@@ -12,6 +12,8 @@ library
     ExprC
     SSA
     Linear
+    Unrestricted
+    Unrestricted.SSA
   build-depends:    
     base ^>=4.16.1.0,
     hashable,
