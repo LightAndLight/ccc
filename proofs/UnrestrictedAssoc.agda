@@ -1,4 +1,4 @@
-module UnrestrictedNAry where
+module UnrestrictedAssoc where
 
 open import Data.Nat using (ℕ; suc)
 
@@ -22,12 +22,12 @@ module Names where
   pure a = MkNames λ n → n , a
 
   _>>=_ : ∀{a b} → Names a → (a → Names b) → Names b
-  _>>=_ (MkNames ma) f = 
-    MkNames λ n → 
-    let (n' , a) = ma n in 
+  _>>=_ (MkNames ma) f =
+    MkNames λ n →
+    let (n' , a) = ma n in
     let (MkNames mb) = f a in
     mb n'
-  
+
   open import Relation.Nullary using (Dec)
   open import Relation.Binary.PropositionalEquality using (_≡_)
   open import Data.Bool using (Bool)
@@ -136,8 +136,8 @@ module Ctx where
 
   _++_ : ∀{m n} → Ctx m → Ctx n → Ctx (m + n)
   _++_ {m} a ◆ rewrite (+-comm m 0) = a
-  _++_ {m} {n = suc n} a (b , x) 
-    rewrite (+-comm m (suc n)) 
+  _++_ {m} {n = suc n} a (b , x)
+    rewrite (+-comm m (suc n))
     rewrite (+-comm n m) = (a ++ b) , x
 
 module Arr where
@@ -158,24 +158,24 @@ module Arr where
 
     _∥_ : ∀{m n} {a : Ctx m} {a' : Ctx n} {b b'} → Arr a a' → Arr [ b ] [ b' ] → Arr (a , b) (a' , b')
 
-    abs : 
-      ∀{n} {ctx : Ctx n} {a b} {name name' name''} → 
-      Arr (ctx , (pair name a)) [ (pair name' b) ] → 
+    abs :
+      ∀{n} {ctx : Ctx n} {a b} {name name' name''} →
+      Arr (ctx , (pair name a)) [ (pair name' b) ] →
       Arr ctx [ pair name'' (a ⊸ b) ]
-    app : 
-      ∀{a b} {name name' name''} → 
+    app :
+      ∀{a b} {name name' name''} →
       Arr ( ◆ , pair name (a ⊸ b) , pair name' a ) [ pair name'' b ]
-    
-    unit : 
-      ∀{n} {x : Ctx n} → 
-      (name : Name) → 
+
+    unit :
+      ∀{n} {x : Ctx n} →
+      (name : Name) →
       Arr x (x , pair name Ty.I)
     pack :
       ∀{n} {x : Ctx n} {a b} {namea nameb} →
       (name : Name) →
       Arr (x , pair namea a , pair nameb b) (x , pair name (a Ty.⊗ b))
-    unpack : 
-      ∀{n} {x : Ctx n} {name} {a b} → 
+    unpack :
+      ∀{n} {x : Ctx n} {name} {a b} →
       (aname bname : Name) →
       Arr ( x , pair name (a Ty.⊗ b) ) ( x , pair aname a , pair bname b )
 
@@ -264,7 +264,7 @@ module Merge where
   merge ctxl Ctx.◆ = do
     name ← fresh
     pure (MkMerge ctxl (unit name))
-  merge ctxl (ctxr , pair name ty) = 
+  merge ctxl (ctxr , pair name ty) =
     let (UsedIn.MkUsedIn used ctxl' reassoc) = UsedIn.usedIn name ty ctxl in
     if used
     then (do
@@ -314,9 +314,9 @@ open Expr using (Expr)
 open import Data.Nat.Properties using (+-comm)
 open Names using (Names; _>>=_; pure; fresh)
 
-mkUnpacks : 
-  ∀{n} {name} → 
-  (ctx : Ctx n) → 
+mkUnpacks :
+  ∀{n} {name} →
+  (ctx : Ctx n) →
   Names (Arr [ pair name (fromCtx ctx) ] ctx)
 mkUnpacks Ctx.◆ = pure drop
 mkUnpacks (ctx Ctx., pair name ty) = do
@@ -325,8 +325,8 @@ mkUnpacks (ctx Ctx., pair name ty) = do
   pure (rest ∥ id ∘ unpack name' name)
 
 fromExpr : ∀{b} → (ctx : Bwd Ty) → Expr ctx b → Names (FromExpr b)
-fromExpr scope (Expr.Var name ty index) = 
-  pure (MkFromExpr 
+fromExpr scope (Expr.Var name ty index) =
+  pure (MkFromExpr
     [ pair (Name.User name) ty ]
     (Name.User name)
     id)
