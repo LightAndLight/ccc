@@ -10,6 +10,7 @@
         haskell.packages.ghc922.ghc
         cabal-install
         (haskell-language-server.override { supportedGhcVersions = [ "922" ]; })
+	pandoc
       ];
     };
   });

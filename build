@@ -1,0 +1,1 @@
+pandoc --from=latex+lhs --to=html src/Posts/Variables.lhs --mathjax --standalone -o vars.html

@@ -14,10 +14,12 @@ library
     Linear
     Unrestricted
     Unrestricted.SSA
+    Posts.Variables
   build-depends:    
     base ^>=4.16.1.0,
     hashable,
     unordered-containers
-  hs-source-dirs:   src
+  hs-source-dirs:
+    src
   default-language: Haskell2010
   ghc-options: -Wall
