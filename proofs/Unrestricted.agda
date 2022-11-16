@@ -123,7 +123,7 @@ merge {a} {b = x ⊗ y} ctxl (ctxr , name) = do
   (used Data.Product., res) ← usedIn name y ctxl
   if used
     then (do
-      -- upgrading linear to unrestricted.
+      -- upgrading affine to unrestricted.
       -- instead of throwing an error when we find a duplicate use,
       -- duplicate the argument and "send" it down to the left side
       let (MkUsedIn _ ctxl' arrl) = res
